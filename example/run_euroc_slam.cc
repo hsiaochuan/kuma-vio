@@ -32,13 +32,19 @@
 #include <gperftools/profiler.h>
 #endif
 
-void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
-                   const std::string& vocab_file_path, const std::string& sequence_dir_path,
-                   const unsigned int frame_skip, const bool no_sleep, const bool auto_term,
-                   const bool eval_log, const bool equal_hist, const std::string& output_dir,
-                   const double start_time, const double duration) {
+void tracking(const std::shared_ptr<openvslam::config>& cfg,
+              const std::string& vocab_file_path, const std::string& sequence_dir_path,
+              const unsigned int frame_skip, const bool no_sleep, const bool auto_term,
+              const bool eval_log, const bool equal_hist, const std::string& output_dir,
+              const double start_time, const double duration) {
     const euroc_sequence sequence(sequence_dir_path);
     const auto frames = sequence.get_frames();
+
+    const bool stereo_mode = cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Stereo;
+    std::unique_ptr<openvslam::util::stereo_rectifier> rectifier;
+    if (stereo_mode) {
+        rectifier.reset(new openvslam::util::stereo_rectifier(cfg));
+    }
 
     // build a SLAM system
     openvslam::system SLAM(cfg, vocab_file_path);
@@ -57,170 +63,67 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
 
     std::vector<double> track_times;
     track_times.reserve(frames.size());
-    double start = start_time + frames.at(0).timestamp_;
-    double end;
-    if (duration < 0)
-        end = frames.back().timestamp_ + 1e-6;
-    else
-        end = start + duration;
+
+    const double start = start_time + frames.at(0).timestamp_;
+    const double end = (duration < 0) ? frames.back().timestamp_ + 1e-6 : start + duration;
     std::vector<int> frames_ids;
-    for (int i =0; i < frames.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(frames.size()); ++i) {
         if (frames.at(i).timestamp_ < end && frames.at(i).timestamp_ >= start) {
             frames_ids.push_back(i);
         }
     }
-    // run the SLAM in another thread
-    std::thread thread([&]() {
-        for (const auto & i : frames_ids) {
-            const auto& frame = frames.at(i);
-            cv::Mat img;
-            if (equal_hist) {
-                img = cv::imread(frame.left_img_path_, cv::IMREAD_UNCHANGED);
-                openvslam::util::equalize_histogram(img);
-            }
-            else {
-                img = cv::imread(frame.left_img_path_, cv::IMREAD_GRAYSCALE);
-            }
-
-            const auto tp_1 = std::chrono::steady_clock::now();
-
-            if (!img.empty() && (i % frame_skip == 0)) {
-                // input the current frame and estimate the camera pose
-                SLAM.feed_monocular_frame(img, frame.timestamp_);
-            }
-
-            const auto tp_2 = std::chrono::steady_clock::now();
-
-            const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
-            if (i % frame_skip == 0) {
-                track_times.push_back(track_time);
-            }
-
-            // wait until the timestamp of the next frame
-            // if (!no_sleep && i < frames.size() - 1) {
-            //     const auto wait_time = frames.at(i + 1).timestamp_ - (frame.timestamp_ + track_time);
-            //     if (0.0 < wait_time) {
-            //         std::this_thread::sleep_for(std::chrono::microseconds(static_cast<unsigned int>(wait_time * 1e6)));
-            //     }
-            // }
-
-            // check if the termination of SLAM system is requested or not
-            if (SLAM.terminate_is_requested()) {
-                break;
-            }
-        }
-
-        // wait until the loop BA is finished
-        while (SLAM.loop_BA_is_running()) {
-            std::this_thread::sleep_for(std::chrono::microseconds(5000));
-        }
-
-        // automatically close the viewer
-#ifdef USE_PANGOLIN_VIEWER
-        if (auto_term) {
-            viewer.request_terminate();
-        }
-#elif USE_SOCKET_PUBLISHER
-        if (auto_term) {
-            publisher.request_terminate();
-        }
-#endif
-    });
-
-    // run the viewer in the current thread
-#ifdef USE_PANGOLIN_VIEWER
-    viewer.run();
-#elif USE_SOCKET_PUBLISHER
-    publisher.run();
-#endif
-
-    thread.join();
-
-    // shutdown the SLAM process
-    SLAM.shutdown();
-
-    // print final map statistics
-    SLAM.print_map_statistics(output_dir + "/map_statistics.txt");
-
-    if (eval_log) {
-        // output the trajectories for evaluation
-        SLAM.save_frame_trajectory(output_dir + "/frame_trajectory.txt", "TUM");
-        SLAM.save_keyframe_trajectory(output_dir + "/keyframe_trajectory.txt", "TUM");
-        // output the tracking times for evaluation
-        std::ofstream ofs(output_dir + "/track_times.txt", std::ios::out);
-        if (ofs.is_open()) {
-            for (const auto track_time : track_times) {
-                ofs << track_time << std::endl;
-            }
-            ofs.close();
-        }
-    }
-
-    SLAM.save_map_database(output_dir + "/map.db");
-
-    std::sort(track_times.begin(), track_times.end());
-    const auto total_track_time = std::accumulate(track_times.begin(), track_times.end(), 0.0);
-    std::cout << "median tracking time: " << track_times.at(track_times.size() / 2) << "[s]" << std::endl;
-    std::cout << "mean tracking time: " << total_track_time / static_cast<double>(track_times.size()) << "[s]" << std::endl;
-}
-
-void stereo_tracking(const std::shared_ptr<openvslam::config>& cfg,
-                     const std::string& vocab_file_path, const std::string& sequence_dir_path,
-                     const unsigned int frame_skip, const bool no_sleep, const bool auto_term,
-                     const bool eval_log, const bool equal_hist, const std::string& output_dir,
-                     const double start_time, const double end_time) {
-    const euroc_sequence sequence(sequence_dir_path);
-    const auto frames = sequence.get_frames();
-
-    const openvslam::util::stereo_rectifier rectifier(cfg);
-
-    // build a SLAM system
-    openvslam::system SLAM(cfg, vocab_file_path);
-    // startup the SLAM process
-    SLAM.startup();
-
-    // create a viewer object
-    // and pass the frame_publisher and the map_publisher
-#ifdef USE_PANGOLIN_VIEWER
-    pangolin_viewer::viewer viewer(
-        openvslam::util::yaml_optional_ref(cfg->yaml_node_, "PangolinViewer"), &SLAM, SLAM.get_frame_publisher(), SLAM.get_map_publisher());
-#elif USE_SOCKET_PUBLISHER
-    socket_publisher::publisher publisher(
-        openvslam::util::yaml_optional_ref(cfg->yaml_node_, "SocketPublisher"), &SLAM, SLAM.get_frame_publisher(), SLAM.get_map_publisher());
-#endif
-
-    std::vector<double> track_times;
-    track_times.reserve(frames.size());
 
     cv::Mat left_img_rect, right_img_rect;
 
     // run the SLAM in another thread
     std::thread thread([&]() {
-        for (unsigned int i = 0; i < frames.size(); ++i) {
+        for (const auto i : frames_ids) {
             const auto& frame = frames.at(i);
+            cv::Mat img;
             cv::Mat left_img, right_img;
-            if (equal_hist) {
-                left_img = cv::imread(frame.left_img_path_, cv::IMREAD_UNCHANGED);
-                right_img = cv::imread(frame.right_img_path_, cv::IMREAD_UNCHANGED);
-                openvslam::util::equalize_histogram(left_img);
-                openvslam::util::equalize_histogram(right_img);
+            if (stereo_mode) {
+                if (equal_hist) {
+                    left_img = cv::imread(frame.left_img_path_, cv::IMREAD_UNCHANGED);
+                    right_img = cv::imread(frame.right_img_path_, cv::IMREAD_UNCHANGED);
+                    openvslam::util::equalize_histogram(left_img);
+                    openvslam::util::equalize_histogram(right_img);
+                }
+                else {
+                    left_img = cv::imread(frame.left_img_path_, cv::IMREAD_GRAYSCALE);
+                    right_img = cv::imread(frame.right_img_path_, cv::IMREAD_GRAYSCALE);
+                }
+
+                if (left_img.empty() || right_img.empty()) {
+                    continue;
+                }
+
+                rectifier->rectify(left_img, right_img, left_img_rect, right_img_rect);
             }
             else {
-                left_img = cv::imread(frame.left_img_path_, cv::IMREAD_GRAYSCALE);
-                right_img = cv::imread(frame.right_img_path_, cv::IMREAD_GRAYSCALE);
-            }
+                if (equal_hist) {
+                    img = cv::imread(frame.left_img_path_, cv::IMREAD_UNCHANGED);
+                    openvslam::util::equalize_histogram(img);
+                }
+                else {
+                    img = cv::imread(frame.left_img_path_, cv::IMREAD_GRAYSCALE);
+                }
 
-            if (left_img.empty() || right_img.empty()) {
-                continue;
+                if (img.empty()) {
+                    continue;
+                }
             }
-
-            rectifier.rectify(left_img, right_img, left_img_rect, right_img_rect);
 
             const auto tp_1 = std::chrono::steady_clock::now();
 
             if (i % frame_skip == 0) {
-                // input the current frame and estimate the camera pose
-                SLAM.feed_stereo_frame(left_img_rect, right_img_rect, frame.timestamp_);
+                if (stereo_mode) {
+                    // input the current frame and estimate the camera pose
+                    SLAM.feed_stereo_frame(left_img_rect, right_img_rect, frame.timestamp_);
+                }
+                else {
+                    // input the current frame and estimate the camera pose
+                    SLAM.feed_monocular_frame(img, frame.timestamp_);
+                }
             }
 
             const auto tp_2 = std::chrono::steady_clock::now();
@@ -231,7 +134,7 @@ void stereo_tracking(const std::shared_ptr<openvslam::config>& cfg,
             }
 
             // wait until the timestamp of the next frame
-            if (!no_sleep && i < frames.size() - 1) {
+            if (!no_sleep && i < static_cast<int>(frames.size()) - 1) {
                 const auto wait_time = frames.at(i + 1).timestamp_ - (frame.timestamp_ + track_time);
                 if (0.0 < wait_time) {
                     std::this_thread::sleep_for(std::chrono::microseconds(static_cast<unsigned int>(wait_time * 1e6)));
@@ -290,7 +193,12 @@ void stereo_tracking(const std::shared_ptr<openvslam::config>& cfg,
         }
     }
 
-    SLAM.save_map_database(output_dir + "map_db.msgpack");
+    if (stereo_mode) {
+        SLAM.save_map_database(output_dir + "map_db.msgpack");
+    }
+    else {
+        SLAM.save_map_database(output_dir + "/map.db");
+    }
 
     std::sort(track_times.begin(), track_times.end());
     const auto total_track_time = std::accumulate(track_times.begin(), track_times.end(), 0.0);
@@ -365,21 +273,14 @@ int main(int argc, char* argv[]) {
 #endif
 
     // run tracking
-    if (cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Monocular) {
-        mono_tracking(cfg, vocab_file_path->value(), data_dir_path->value(),
-                      frame_skip->value(), no_sleep->is_set(), auto_term->is_set(),
-                      eval_log->is_set(), equal_hist->is_set(), output->value(),
-                      start->value(), end_time->value());
-    }
-    else if (cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Stereo) {
-        stereo_tracking(cfg, vocab_file_path->value(), data_dir_path->value(),
-                        frame_skip->value(), no_sleep->is_set(), auto_term->is_set(),
-                        eval_log->is_set(), equal_hist->is_set(), output->value(),
-                        start->value(), end_time->value());
-    }
-    else {
+    if (cfg->camera_->setup_type_ != openvslam::camera::setup_type_t::Monocular && cfg->camera_->setup_type_ != openvslam::camera::setup_type_t::Stereo) {
         throw std::runtime_error("Invalid setup type: " + cfg->camera_->get_setup_type_string());
     }
+
+    tracking(cfg, vocab_file_path->value(), data_dir_path->value(),
+             frame_skip->value(), no_sleep->is_set(), auto_term->is_set(),
+             eval_log->is_set(), equal_hist->is_set(), output->value(),
+             start->value(), end_time->value());
 
 #ifdef USE_GOOGLE_PERFTOOLS
     ProfilerStop();

@@ -111,7 +111,7 @@ def run_all_sequences():
             "--eval-log", "1",
             "--auto-term", "1",
             "--start", "0",
-            "--duration", "10",
+            "--duration", "-1",
         ], check=True)
 
     summarize_map_statistics(euroc_data_dir, seqs)
