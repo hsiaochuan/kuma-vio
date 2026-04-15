@@ -19,7 +19,7 @@
 #include <thread>
 
 #include <spdlog/spdlog.h>
-
+#include <fstream>
 namespace openvslam {
 
 system::system(const std::shared_ptr<config>& cfg, const std::string& vocab_file_path)
@@ -184,7 +184,7 @@ void system::save_map_database(const std::string& path) const {
     resume_other_threads();
 }
 
-void system::print_map_statistics() const {
+void system::print_map_statistics(const std::string & fname) const {
     const auto keyfrms = map_db_->get_all_keyframes();
     const auto landmarks = map_db_->get_all_landmarks();
 
@@ -229,8 +229,15 @@ void system::print_map_statistics() const {
     const double avg_track_length = (0 < num_valid_landmarks) ? total_track_length / static_cast<double>(num_valid_landmarks) : 0.0;
     const double avg_reproj_error = (0 < num_reproj_obs) ? total_reproj_error / static_cast<double>(num_reproj_obs) : 0.0;
 
-    spdlog::info("keyframe count: {}\n3D point count: {}\naverage track length: {}\naverage reprojection error: {}",
-                 keyfrms.size(), landmarks.size(), avg_track_length, avg_reproj_error);
+    std::ofstream ofs(fname);
+    if (!ofs.is_open()) {
+        spdlog::info("failed to open file for writing map statistics: {}", fname);
+    }
+    ofs << "keyframes: " << keyfrms.size() << std::endl;
+    ofs << "points: " << landmarks.size() << std::endl;
+    ofs << "average track length: " << avg_track_length << std::endl;
+    ofs << "average reproj error: " << avg_reproj_error << std::endl;
+    ofs.close();
 }
 
 std::shared_ptr<publish::map_publisher> system::get_map_publisher() const {

@@ -1,3 +1,4 @@
+import csv
 import os.path
 import subprocess
 
@@ -17,17 +18,104 @@ seqs = [
 ]
 SLAM_EXE = "../build/run_euroc_slam"
 
-subprocess.run(
-    ["make", "-C", "./build", "-j", "4"],
-)
-for seq in seqs:
-    os.makedirs(os.path.join(euroc_data_dir,seq,"openvslam_result"), exist_ok=True)
-    subprocess.run([
-        SLAM_EXE,
-        "-v", "./orb_vocab.fbow",
-        "-d", os.path.join(euroc_data_dir, seq),
-        "--config", "./euroc//EuRoC_mono.yaml",
-        "--map-db", os.path.join(euroc_data_dir,seq,"openvslam_result", "map.db"),
-        "--eval-log", os.path.join(euroc_data_dir,seq,"openvslam_result", "eval.log"),
-    ])
 
+def _parse_value(raw):
+    value = raw.strip()
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        return value
+
+
+def parse_map_statistics(stat_path):
+    stats = {}
+    with open(stat_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            key = key.strip()
+            if not key:
+                continue
+            stats[key] = _parse_value(value)
+    return stats
+
+
+def save_summary_tables(rows):
+    fixed_columns = [
+        "sequence",
+        "keyframes",
+        "points",
+        "average track length",
+        "average reproj error",
+    ]
+
+    csv_path = "./map_statistics_summary.csv"
+    md_path = "./map_statistics_summary.md"
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fixed_columns)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: row.get(k, "") for k in fixed_columns})
+
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("| " + " | ".join(fixed_columns) + " |\n")
+        f.write("| " + " | ".join(["---"] * len(fixed_columns)) + " |\n")
+        for row in rows:
+            f.write("| " + " | ".join(str(row.get(k, "")) for k in fixed_columns) + " |\n")
+
+    print(f"Saved: {csv_path}")
+    print(f"Saved: {md_path}")
+
+
+def summarize_map_statistics(data_dir, sequences):
+    rows = []
+    missing = []
+
+    for seq in sequences:
+        stat_path = os.path.join(data_dir, seq, "openvslam_result", "map_statistics.txt")
+        row = {"sequence": seq}
+        if os.path.exists(stat_path):
+            row.update(parse_map_statistics(stat_path))
+        else:
+            missing.append(stat_path)
+        rows.append(row)
+
+    save_summary_tables(rows)
+
+    if missing:
+        print(f"Warning: missing map_statistics.txt for {len(missing)} sequence(s)")
+        for path in missing:
+            print(f"  - {path}")
+
+
+def run_all_sequences():
+    subprocess.run(
+        ["make", "-C", "../build", "-j", "4"],
+        check=True,
+    )
+    for seq in seqs:
+        output_dir = os.path.join(euroc_data_dir, seq, "openvslam_result")
+        os.makedirs(output_dir, exist_ok=True)
+        subprocess.run([
+            SLAM_EXE,
+            "-v", "./orb_vocab.fbow",
+            "-d", os.path.join(euroc_data_dir, seq),
+            "--config", "./euroc//EuRoC_mono.yaml",
+            "--output", output_dir,
+            "--eval-log", "1",
+            "--auto-term", "1",
+            "--start", "0",
+            "--duration", "10",
+        ], check=True)
+
+    summarize_map_statistics(euroc_data_dir, seqs)
+
+
+if __name__ == "__main__":
+    run_all_sequences()

@@ -35,7 +35,8 @@
 void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
                    const std::string& vocab_file_path, const std::string& sequence_dir_path,
                    const unsigned int frame_skip, const bool no_sleep, const bool auto_term,
-                   const bool eval_log, const std::string& map_db_path, const bool equal_hist) {
+                   const bool eval_log, const bool equal_hist, const std::string& output_dir,
+                   const double start_time, const double duration) {
     const euroc_sequence sequence(sequence_dir_path);
     const auto frames = sequence.get_frames();
 
@@ -56,10 +57,21 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
 
     std::vector<double> track_times;
     track_times.reserve(frames.size());
-
+    double start = start_time + frames.at(0).timestamp_;
+    double end;
+    if (duration < 0)
+        end = frames.back().timestamp_ + 1e-6;
+    else
+        end = start + duration;
+    std::vector<int> frames_ids;
+    for (int i =0; i < frames.size(); ++i) {
+        if (frames.at(i).timestamp_ < end && frames.at(i).timestamp_ >= start) {
+            frames_ids.push_back(i);
+        }
+    }
     // run the SLAM in another thread
     std::thread thread([&]() {
-        for (unsigned int i = 0; i < frames.size(); ++i) {
+        for (const auto & i : frames_ids) {
             const auto& frame = frames.at(i);
             cv::Mat img;
             if (equal_hist) {
@@ -85,12 +97,12 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
             }
 
             // wait until the timestamp of the next frame
-            if (!no_sleep && i < frames.size() - 1) {
-                const auto wait_time = frames.at(i + 1).timestamp_ - (frame.timestamp_ + track_time);
-                if (0.0 < wait_time) {
-                    std::this_thread::sleep_for(std::chrono::microseconds(static_cast<unsigned int>(wait_time * 1e6)));
-                }
-            }
+            // if (!no_sleep && i < frames.size() - 1) {
+            //     const auto wait_time = frames.at(i + 1).timestamp_ - (frame.timestamp_ + track_time);
+            //     if (0.0 < wait_time) {
+            //         std::this_thread::sleep_for(std::chrono::microseconds(static_cast<unsigned int>(wait_time * 1e6)));
+            //     }
+            // }
 
             // check if the termination of SLAM system is requested or not
             if (SLAM.terminate_is_requested()) {
@@ -128,14 +140,14 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
     SLAM.shutdown();
 
     // print final map statistics
-    SLAM.print_map_statistics();
+    SLAM.print_map_statistics(output_dir + "/map_statistics.txt");
 
     if (eval_log) {
         // output the trajectories for evaluation
-        SLAM.save_frame_trajectory("frame_trajectory.txt", "TUM");
-        SLAM.save_keyframe_trajectory("keyframe_trajectory.txt", "TUM");
+        SLAM.save_frame_trajectory(output_dir + "/frame_trajectory.txt", "TUM");
+        SLAM.save_keyframe_trajectory(output_dir + "/keyframe_trajectory.txt", "TUM");
         // output the tracking times for evaluation
-        std::ofstream ofs("track_times.txt", std::ios::out);
+        std::ofstream ofs(output_dir + "/track_times.txt", std::ios::out);
         if (ofs.is_open()) {
             for (const auto track_time : track_times) {
                 ofs << track_time << std::endl;
@@ -144,10 +156,7 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
         }
     }
 
-    if (!map_db_path.empty()) {
-        // output the map database
-        SLAM.save_map_database(map_db_path);
-    }
+    SLAM.save_map_database(output_dir + "/map.db");
 
     std::sort(track_times.begin(), track_times.end());
     const auto total_track_time = std::accumulate(track_times.begin(), track_times.end(), 0.0);
@@ -158,7 +167,8 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
 void stereo_tracking(const std::shared_ptr<openvslam::config>& cfg,
                      const std::string& vocab_file_path, const std::string& sequence_dir_path,
                      const unsigned int frame_skip, const bool no_sleep, const bool auto_term,
-                     const bool eval_log, const std::string& map_db_path, const bool equal_hist) {
+                     const bool eval_log, const bool equal_hist, const std::string& output_dir,
+                     const double start_time, const double end_time) {
     const euroc_sequence sequence(sequence_dir_path);
     const auto frames = sequence.get_frames();
 
@@ -264,14 +274,14 @@ void stereo_tracking(const std::shared_ptr<openvslam::config>& cfg,
     SLAM.shutdown();
 
     // print final map statistics
-    SLAM.print_map_statistics();
+    SLAM.print_map_statistics(output_dir + "/map_statistics.txt");
 
     if (eval_log) {
         // output the trajectories for evaluation
-        SLAM.save_frame_trajectory("frame_trajectory.txt", "TUM");
-        SLAM.save_keyframe_trajectory("keyframe_trajectory.txt", "TUM");
+        SLAM.save_frame_trajectory(output_dir + "/frame_trajectory.txt", "TUM");
+        SLAM.save_keyframe_trajectory(output_dir + "/keyframe_trajectory.txt", "TUM");
         // output the tracking times for evaluation
-        std::ofstream ofs("track_times.txt", std::ios::out);
+        std::ofstream ofs(output_dir + "/track_times.txt", std::ios::out);
         if (ofs.is_open()) {
             for (const auto track_time : track_times) {
                 ofs << track_time << std::endl;
@@ -280,10 +290,7 @@ void stereo_tracking(const std::shared_ptr<openvslam::config>& cfg,
         }
     }
 
-    if (!map_db_path.empty()) {
-        // output the map database
-        SLAM.save_map_database(map_db_path);
-    }
+    SLAM.save_map_database(output_dir + "map_db.msgpack");
 
     std::sort(track_times.begin(), track_times.end());
     const auto total_track_time = std::accumulate(track_times.begin(), track_times.end(), 0.0);
@@ -308,9 +315,10 @@ int main(int argc, char* argv[]) {
     auto auto_term = op.add<popl::Switch>("", "auto-term", "automatically terminate the viewer");
     auto debug_mode = op.add<popl::Switch>("", "debug", "debug mode");
     auto eval_log = op.add<popl::Switch>("", "eval-log", "store trajectory and tracking times for evaluation");
-    auto map_db_path = op.add<popl::Value<std::string>>("p", "map-db", "store a map database at this path after SLAM", "");
     auto equal_hist = op.add<popl::Switch>("", "equal-hist", "apply histogram equalization");
-
+    auto start = op.add<popl::Value<double>>("", "start", "start timestamp [sec] in dataset timeline", 0.0);
+    auto end_time = op.add<popl::Value<double>>("", "duration", "end timestamp [sec] in dataset timeline; negative means until end", -1.0);
+    auto output = op.add<popl::Value<std::string>>("o", "output", "directory path to save output files (e.g., trajectory, map database)", ".");
     try {
         op.parse(argc, argv);
     }
@@ -360,12 +368,14 @@ int main(int argc, char* argv[]) {
     if (cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Monocular) {
         mono_tracking(cfg, vocab_file_path->value(), data_dir_path->value(),
                       frame_skip->value(), no_sleep->is_set(), auto_term->is_set(),
-                      eval_log->is_set(), map_db_path->value(), equal_hist->is_set());
+                      eval_log->is_set(), equal_hist->is_set(), output->value(),
+                      start->value(), end_time->value());
     }
     else if (cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Stereo) {
         stereo_tracking(cfg, vocab_file_path->value(), data_dir_path->value(),
                         frame_skip->value(), no_sleep->is_set(), auto_term->is_set(),
-                        eval_log->is_set(), map_db_path->value(), equal_hist->is_set());
+                        eval_log->is_set(), equal_hist->is_set(), output->value(),
+                        start->value(), end_time->value());
     }
     else {
         throw std::runtime_error("Invalid setup type: " + cfg->camera_->get_setup_type_string());

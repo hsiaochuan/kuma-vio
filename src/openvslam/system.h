@@ -68,7 +68,7 @@ public:
     void save_map_database(const std::string& path) const;
 
     //! Print summary statistics of the current map database
-    void print_map_statistics() const;
+    void print_map_statistics(const std::string & fname) const;
 
     //! Get the map publisher
     std::shared_ptr<publish::map_publisher> get_map_publisher() const;
