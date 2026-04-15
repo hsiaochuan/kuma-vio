@@ -127,6 +127,9 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
     // shutdown the SLAM process
     SLAM.shutdown();
 
+    // print final map statistics
+    SLAM.print_map_statistics();
+
     if (eval_log) {
         // output the trajectories for evaluation
         SLAM.save_frame_trajectory("frame_trajectory.txt", "TUM");
@@ -149,7 +152,7 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
     std::sort(track_times.begin(), track_times.end());
     const auto total_track_time = std::accumulate(track_times.begin(), track_times.end(), 0.0);
     std::cout << "median tracking time: " << track_times.at(track_times.size() / 2) << "[s]" << std::endl;
-    std::cout << "mean tracking time: " << total_track_time / track_times.size() << "[s]" << std::endl;
+    std::cout << "mean tracking time: " << total_track_time / static_cast<double>(track_times.size()) << "[s]" << std::endl;
 }
 
 void stereo_tracking(const std::shared_ptr<openvslam::config>& cfg,
@@ -260,6 +263,9 @@ void stereo_tracking(const std::shared_ptr<openvslam::config>& cfg,
     // shutdown the SLAM process
     SLAM.shutdown();
 
+    // print final map statistics
+    SLAM.print_map_statistics();
+
     if (eval_log) {
         // output the trajectories for evaluation
         SLAM.save_frame_trajectory("frame_trajectory.txt", "TUM");
@@ -282,7 +288,7 @@ void stereo_tracking(const std::shared_ptr<openvslam::config>& cfg,
     std::sort(track_times.begin(), track_times.end());
     const auto total_track_time = std::accumulate(track_times.begin(), track_times.end(), 0.0);
     std::cout << "median tracking time: " << track_times.at(track_times.size() / 2) << "[s]" << std::endl;
-    std::cout << "mean tracking time: " << total_track_time / track_times.size() << "[s]" << std::endl;
+    std::cout << "mean tracking time: " << total_track_time / static_cast<double>(track_times.size()) << "[s]" << std::endl;
 }
 
 int main(int argc, char* argv[]) {

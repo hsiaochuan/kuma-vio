@@ -6,6 +6,7 @@
 #include "openvslam/camera/base.h"
 #include "openvslam/data/camera_database.h"
 #include "openvslam/data/map_database.h"
+#include "openvslam/data/landmark.h"
 #include "openvslam/data/bow_database.h"
 #include "openvslam/data/bow_vocabulary.h"
 #include "openvslam/io/trajectory_io.h"
@@ -14,6 +15,7 @@
 #include "openvslam/publish/frame_publisher.h"
 #include "openvslam/util/yaml.h"
 
+#include <cmath>
 #include <thread>
 
 #include <spdlog/spdlog.h>
@@ -80,8 +82,8 @@ system::system(const std::shared_ptr<config>& cfg, const std::string& vocab_file
     bow_db_ = new data::bow_database(bow_vocab_, reject_by_graph_distance, loop_min_distance_on_graph);
 
     // frame and map publisher
-    frame_publisher_ = std::shared_ptr<publish::frame_publisher>(new publish::frame_publisher(cfg_, map_db_));
-    map_publisher_ = std::shared_ptr<publish::map_publisher>(new publish::map_publisher(cfg_, map_db_));
+    frame_publisher_ = std::make_shared<publish::frame_publisher>(cfg_, map_db_);
+    map_publisher_ = std::make_shared<publish::map_publisher>(cfg_, map_db_);
 
     // tracking module
     tracker_ = new tracking_module(cfg_, this, map_db_, bow_vocab_, bow_db_);
@@ -182,11 +184,60 @@ void system::save_map_database(const std::string& path) const {
     resume_other_threads();
 }
 
-const std::shared_ptr<publish::map_publisher> system::get_map_publisher() const {
+void system::print_map_statistics() const {
+    const auto keyfrms = map_db_->get_all_keyframes();
+    const auto landmarks = map_db_->get_all_landmarks();
+
+    double total_track_length = 0.0;
+    double total_reproj_error = 0.0;
+    std::size_t num_reproj_obs = 0;
+    std::size_t num_valid_landmarks = 0;
+
+    for (const auto& lm : landmarks) {
+        if (!lm || lm->will_be_erased()) {
+            continue;
+        }
+
+        const auto observations = lm->get_observations();
+        if (observations.empty()) {
+            continue;
+        }
+
+        ++num_valid_landmarks;
+        total_track_length += static_cast<double>(observations.size());
+
+        const auto pos_w = lm->get_pos_in_world();
+        for (const auto& obs : observations) {
+            const auto keyfrm = obs.first.lock();
+            if (!keyfrm || keyfrm->will_be_erased()) {
+                continue;
+            }
+
+            const auto idx = obs.second;
+            const auto& undist_keypt = keyfrm->undist_keypts_.at(idx);
+            Vec2_t reproj = Vec2_t::Zero();
+            float x_right = 0.0F;
+            if (!keyfrm->camera_->reproject_to_image(keyfrm->get_rotation(), keyfrm->get_translation(), pos_w, reproj, x_right)) {
+                continue;
+            }
+
+            total_reproj_error += (reproj - Vec2_t(undist_keypt.pt.x, undist_keypt.pt.y)).norm();
+            ++num_reproj_obs;
+        }
+    }
+
+    const double avg_track_length = (0 < num_valid_landmarks) ? total_track_length / static_cast<double>(num_valid_landmarks) : 0.0;
+    const double avg_reproj_error = (0 < num_reproj_obs) ? total_reproj_error / static_cast<double>(num_reproj_obs) : 0.0;
+
+    spdlog::info("keyframe count: {}\n3D point count: {}\naverage track length: {}\naverage reprojection error: {}",
+                 keyfrms.size(), landmarks.size(), avg_track_length, avg_reproj_error);
+}
+
+std::shared_ptr<publish::map_publisher> system::get_map_publisher() const {
     return map_publisher_;
 }
 
-const std::shared_ptr<publish::frame_publisher> system::get_frame_publisher() const {
+std::shared_ptr<publish::frame_publisher> system::get_frame_publisher() const {
     return frame_publisher_;
 }
 
