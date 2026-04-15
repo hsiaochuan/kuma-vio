@@ -45,3 +45,5 @@ cmake-build-release/
 
 # vcpkg
 /3rd/vcpkg/
+cmake-*
+.idea
