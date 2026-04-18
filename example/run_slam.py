@@ -19,8 +19,10 @@ euroc_seqs = [
 tum_rgbd_dir = "/mnt/data/home/hsiaochuan/data/tum_rgbd"
 tum_rgbd_seqs = [
     "rgbd_dataset_freiburg1_desk",
+    "rgbd_dataset_freiburg1_desk2",
 ]
 SLAM_EXE = "../build/run_slam"
+VOCAB_PATH = "./orb_vocab.fbow"
 
 
 def _parse_value(raw):
@@ -98,54 +100,66 @@ def summarize_map_statistics(data_dir, sequences):
             print(f"  - {path}")
 
 
+def make_run_slam_cmd(seq_dir, output_dir, config_fname, dataset_type):
+    return [
+        SLAM_EXE,
+        "-v",
+        VOCAB_PATH,
+        "-d",
+        seq_dir,
+        "--config",
+        config_fname,
+        "--output",
+        output_dir,
+        "--eval-log",
+        "--auto-term",
+        "--start",
+        "0",
+        "--duration",
+        "-1",
+        "--dataset-type",
+        dataset_type,
+    ]
+
+
+def run_dataset(data_dir, sequences, config_fname, dataset_type):
+    for seq in sequences:
+        seq_dir = os.path.join(data_dir, seq)
+        output_dir = os.path.join(seq_dir, "openvslam_result")
+        os.makedirs(output_dir, exist_ok=True)
+        subprocess.run(
+            make_run_slam_cmd(seq_dir, output_dir, config_fname, dataset_type),
+            check=True,
+        )
+
+
 def run_all_sequences():
     subprocess.run(
         ["make", "-C", "../build", "-j", "4"],
         check=True,
     )
-
-    is_stereo = False
-    for seq in euroc_seqs:
-        output_dir = os.path.join(euroc_data_dir, seq, "openvslam_result")
-        if is_stereo:
-            config_fname = './euroc/EuRoC_stereo.yaml'
-        else:
-            config_fname = './euroc/EuRoC_mono.yaml'
-        os.makedirs(output_dir, exist_ok=True)
-        subprocess.run([
-            SLAM_EXE,
-            "-v", "./orb_vocab.fbow",
-            "-d", os.path.join(euroc_data_dir, seq),
-            "--config", config_fname,
-            "--output", output_dir,
-            "--eval-log", "1",
-            "--auto-term", "1",
-            "--start", "0",
-            "--duration", "-1",
-            "--dataset-type", "euroc",
-        ], check=True)
+    EUROC_MONO_CONFIG = "./euroc/EuRoC_mono.yaml"
+    EUROC_STEREO_CONFIG = "./euroc/EuRoC_stereo.yaml"
+    run_dataset(
+        data_dir=euroc_data_dir,
+        sequences=euroc_seqs,
+        config_fname=EUROC_MONO_CONFIG,
+        dataset_type="euroc",
+    )
 
     summarize_map_statistics(euroc_data_dir, euroc_seqs)
 
-    is_rgbd = True
-    for seq in tum_rgbd_seqs:
-        output_dir = os.path.join(tum_rgbd_dir, seq, "openvslam_result")
-        if is_rgbd:
-            config_fname = "./tum_rgbd/TUM_RGBD_rgbd_1.yaml"
-        else:
-            config_fname = './tum_rgbd/TUM_RGBD_mono_1.yaml'
-        os.makedirs(output_dir, exist_ok=True)
-        subprocess.run([
-            SLAM_EXE,
-            "-v", "./orb_vocab.fbow",
-            "-d", os.path.join(tum_rgbd_dir, seq),
-            "--config", config_fname,
-            "--output", output_dir,
-            "--eval-log", "1",
-            "--auto-term", "1",
-            "--start", "0",
-            "--duration", "-1",
-            "--dataset-type", "tum_rgbd",
-        ])
+    TUM_RGBD_CONFIG = "./tum_rgbd/TUM_RGBD_rgbd_1.yaml"
+    TUM_MONO_CONFIG = "./tum_rgbd/TUM_RGBD_mono_1.yaml"
+    run_dataset(
+        data_dir=tum_rgbd_dir,
+        sequences=tum_rgbd_seqs,
+        config_fname=TUM_MONO_CONFIG,
+        dataset_type="tum_rgbd",
+    )
+
+    summarize_map_statistics(tum_rgbd_dir, tum_rgbd_seqs)
+
+
 if __name__ == "__main__":
     run_all_sequences()
