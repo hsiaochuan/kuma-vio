@@ -16,6 +16,10 @@ euroc_seqs = [
     "vicon_room2/V2_02_medium/V2_02_medium/mav0",
     "vicon_room2/V2_03_difficult/V2_03_difficult/mav0",
 ]
+tum_rgbd_dir = "/mnt/data/home/hsiaochuan/data/tum_rgbd"
+tum_rgbd_seqs = [
+    "rgbd_dataset_freiburg1_desk",
+]
 SLAM_EXE = "../build/run_slam"
 
 
@@ -118,10 +122,30 @@ def run_all_sequences():
             "--auto-term", "1",
             "--start", "0",
             "--duration", "-1",
+            "--dataset-type", "euroc",
         ], check=True)
 
     summarize_map_statistics(euroc_data_dir, euroc_seqs)
 
-
+    is_rgbd = True
+    for seq in tum_rgbd_seqs:
+        output_dir = os.path.join(tum_rgbd_dir, seq, "openvslam_result")
+        if is_rgbd:
+            config_fname = "./tum_rgbd/TUM_RGBD_rgbd_1.yaml"
+        else:
+            config_fname = './tum_rgbd/TUM_RGBD_mono_1.yaml'
+        os.makedirs(output_dir, exist_ok=True)
+        subprocess.run([
+            SLAM_EXE,
+            "-v", "./orb_vocab.fbow",
+            "-d", os.path.join(tum_rgbd_dir, seq),
+            "--config", config_fname,
+            "--output", output_dir,
+            "--eval-log", "1",
+            "--auto-term", "1",
+            "--start", "0",
+            "--duration", "-1",
+            "--dataset-type", "tum_rgbd",
+        ])
 if __name__ == "__main__":
     run_all_sequences()

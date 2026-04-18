@@ -53,7 +53,7 @@ list(APPEND EXECUTABLE_TARGETS run_video_slam)
 add_executable(run_video_localization run_video_localization.cc)
 list(APPEND EXECUTABLE_TARGETS run_video_localization)
 
-add_executable(run_slam run_slam.cc util/euroc_util.cc)
+add_executable(run_slam run_slam.cc util/euroc_util.cc util/tum_rgbd_util.cc)
 list(APPEND EXECUTABLE_TARGETS run_slam)
 
 add_executable(run_euroc_localization run_euroc_localization.cc util/euroc_util.cc)
