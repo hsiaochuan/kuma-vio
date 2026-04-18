@@ -53,8 +53,8 @@ list(APPEND EXECUTABLE_TARGETS run_video_slam)
 add_executable(run_video_localization run_video_localization.cc)
 list(APPEND EXECUTABLE_TARGETS run_video_localization)
 
-add_executable(run_euroc_slam run_euroc_slam.cc util/euroc_util.cc)
-list(APPEND EXECUTABLE_TARGETS run_euroc_slam)
+add_executable(run_slam run_slam.cc util/euroc_util.cc)
+list(APPEND EXECUTABLE_TARGETS run_slam)
 
 add_executable(run_euroc_localization run_euroc_localization.cc util/euroc_util.cc)
 list(APPEND EXECUTABLE_TARGETS run_euroc_localization)

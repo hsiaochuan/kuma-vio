@@ -38,7 +38,7 @@ void tracking(const std::shared_ptr<openvslam::config>& cfg,
               const bool eval_log, const bool equal_hist, const std::string& output_dir,
               const double start_time, const double duration) {
     const euroc_sequence sequence(sequence_dir_path);
-    const auto frames = sequence.get_frames();
+    const auto euroc_frames = sequence.get_frames();
 
     const bool stereo_mode = cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Stereo;
     std::unique_ptr<openvslam::util::stereo_rectifier> rectifier;
@@ -62,13 +62,13 @@ void tracking(const std::shared_ptr<openvslam::config>& cfg,
 #endif
 
     std::vector<double> track_times;
-    track_times.reserve(frames.size());
+    track_times.reserve(euroc_frames.size());
 
-    const double start = start_time + frames.at(0).timestamp_;
-    const double end = (duration < 0) ? frames.back().timestamp_ + 1e-6 : start + duration;
+    const double start = start_time + euroc_frames.at(0).timestamp_;
+    const double end = (duration < 0) ? euroc_frames.back().timestamp_ + 1e-6 : start + duration;
     std::vector<int> frames_ids;
-    for (int i = 0; i < static_cast<int>(frames.size()); ++i) {
-        if (frames.at(i).timestamp_ < end && frames.at(i).timestamp_ >= start) {
+    for (int i = 0; i < static_cast<int>(euroc_frames.size()); ++i) {
+        if (euroc_frames.at(i).timestamp_ < end && euroc_frames.at(i).timestamp_ >= start) {
             frames_ids.push_back(i);
         }
     }
@@ -78,19 +78,19 @@ void tracking(const std::shared_ptr<openvslam::config>& cfg,
     // run the SLAM in another thread
     std::thread thread([&]() {
         for (const auto i : frames_ids) {
-            const auto& frame = frames.at(i);
+            const auto& euroc_frame = euroc_frames.at(i);
             cv::Mat img;
             cv::Mat left_img, right_img;
             if (stereo_mode) {
                 if (equal_hist) {
-                    left_img = cv::imread(frame.left_img_path_, cv::IMREAD_UNCHANGED);
-                    right_img = cv::imread(frame.right_img_path_, cv::IMREAD_UNCHANGED);
+                    left_img = cv::imread(euroc_frame.left_img_path_, cv::IMREAD_UNCHANGED);
+                    right_img = cv::imread(euroc_frame.right_img_path_, cv::IMREAD_UNCHANGED);
                     openvslam::util::equalize_histogram(left_img);
                     openvslam::util::equalize_histogram(right_img);
                 }
                 else {
-                    left_img = cv::imread(frame.left_img_path_, cv::IMREAD_GRAYSCALE);
-                    right_img = cv::imread(frame.right_img_path_, cv::IMREAD_GRAYSCALE);
+                    left_img = cv::imread(euroc_frame.left_img_path_, cv::IMREAD_GRAYSCALE);
+                    right_img = cv::imread(euroc_frame.right_img_path_, cv::IMREAD_GRAYSCALE);
                 }
 
                 if (left_img.empty() || right_img.empty()) {
@@ -101,11 +101,11 @@ void tracking(const std::shared_ptr<openvslam::config>& cfg,
             }
             else {
                 if (equal_hist) {
-                    img = cv::imread(frame.left_img_path_, cv::IMREAD_UNCHANGED);
+                    img = cv::imread(euroc_frame.left_img_path_, cv::IMREAD_UNCHANGED);
                     openvslam::util::equalize_histogram(img);
                 }
                 else {
-                    img = cv::imread(frame.left_img_path_, cv::IMREAD_GRAYSCALE);
+                    img = cv::imread(euroc_frame.left_img_path_, cv::IMREAD_GRAYSCALE);
                 }
 
                 if (img.empty()) {
@@ -118,11 +118,11 @@ void tracking(const std::shared_ptr<openvslam::config>& cfg,
             if (i % frame_skip == 0) {
                 if (stereo_mode) {
                     // input the current frame and estimate the camera pose
-                    SLAM.feed_stereo_frame(left_img_rect, right_img_rect, frame.timestamp_);
+                    SLAM.feed_stereo_frame(left_img_rect, right_img_rect, euroc_frame.timestamp_);
                 }
                 else {
                     // input the current frame and estimate the camera pose
-                    SLAM.feed_monocular_frame(img, frame.timestamp_);
+                    SLAM.feed_monocular_frame(img, euroc_frame.timestamp_);
                 }
             }
 
@@ -134,8 +134,8 @@ void tracking(const std::shared_ptr<openvslam::config>& cfg,
             }
 
             // wait until the timestamp of the next frame
-            if (!no_sleep && i < static_cast<int>(frames.size()) - 1) {
-                const auto wait_time = frames.at(i + 1).timestamp_ - (frame.timestamp_ + track_time);
+            if (!no_sleep && i < static_cast<int>(euroc_frames.size()) - 1) {
+                const auto wait_time = euroc_frames.at(i + 1).timestamp_ - (euroc_frame.timestamp_ + track_time);
                 if (0.0 < wait_time) {
                     std::this_thread::sleep_for(std::chrono::microseconds(static_cast<unsigned int>(wait_time * 1e6)));
                 }

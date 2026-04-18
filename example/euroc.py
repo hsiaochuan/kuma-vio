@@ -16,7 +16,7 @@ euroc_seqs = [
     "vicon_room2/V2_02_medium/V2_02_medium/mav0",
     "vicon_room2/V2_03_difficult/V2_03_difficult/mav0",
 ]
-SLAM_EXE = "../build/run_euroc_slam"
+SLAM_EXE = "../build/run_slam"
 
 
 def _parse_value(raw):
