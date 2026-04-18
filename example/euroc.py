@@ -3,7 +3,7 @@ import os.path
 import subprocess
 
 euroc_data_dir = "/mnt/data/home/hsiaochuan/data/euroc"
-seqs = [
+euroc_seqs = [
     "machine_hall/MH_01_easy/MH_01_easy/mav0",
     "machine_hall/MH_02_easy/MH_02_easy/mav0",
     "machine_hall/MH_03_medium/MH_03_medium/mav0",
@@ -99,14 +99,20 @@ def run_all_sequences():
         ["make", "-C", "../build", "-j", "4"],
         check=True,
     )
-    for seq in seqs:
+
+    is_stereo = False
+    for seq in euroc_seqs:
         output_dir = os.path.join(euroc_data_dir, seq, "openvslam_result")
+        if is_stereo:
+            config_fname = './euroc/EuRoC_stereo.yaml'
+        else:
+            config_fname = './euroc/EuRoC_mono.yaml'
         os.makedirs(output_dir, exist_ok=True)
         subprocess.run([
             SLAM_EXE,
             "-v", "./orb_vocab.fbow",
             "-d", os.path.join(euroc_data_dir, seq),
-            "--config", "./euroc//EuRoC_mono.yaml",
+            "--config", config_fname,
             "--output", output_dir,
             "--eval-log", "1",
             "--auto-term", "1",
@@ -114,7 +120,7 @@ def run_all_sequences():
             "--duration", "-1",
         ], check=True)
 
-    summarize_map_statistics(euroc_data_dir, seqs)
+    summarize_map_statistics(euroc_data_dir, euroc_seqs)
 
 
 if __name__ == "__main__":

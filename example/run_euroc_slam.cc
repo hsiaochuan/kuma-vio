@@ -193,12 +193,7 @@ void tracking(const std::shared_ptr<openvslam::config>& cfg,
         }
     }
 
-    if (stereo_mode) {
-        SLAM.save_map_database(output_dir + "map_db.msgpack");
-    }
-    else {
-        SLAM.save_map_database(output_dir + "/map.db");
-    }
+    SLAM.save_map_database(output_dir + "/map.db");
 
     std::sort(track_times.begin(), track_times.end());
     const auto total_track_time = std::accumulate(track_times.begin(), track_times.end(), 0.0);
